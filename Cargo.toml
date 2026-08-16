@@ -1,0 +1,16 @@
+[package]
+name = "nldb"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dash_cache = "0.1.0"
+memmap2 = "0.9.10"
+rayon = "1.12.0"
+tokio = {version = "1.52.3", features = [ "full" ] }
+uuid = "1.23.3"
+walkdir = "2.5.0"
+serde = { version = "1.0.228", features = [ "derive" ] }
+yaml_serde = "0.10"
+bytes = "1.12.1"
+num_cpus = "1.17.0"
