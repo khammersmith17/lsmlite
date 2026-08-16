@@ -96,7 +96,7 @@ impl SSTableCache {
 }
 
 fn validate_buffer_and_get_version(fd: &mut File) -> Result<u16, SSTableError> {
-    let mut header_buffer = vec![0_u8; 4];
+    let mut header_buffer = vec![0_u8; 7];
     fd.read_exact(&mut header_buffer)?;
     if header_buffer != constants::LSMLITE_SSTABLE_HEADER {
         return Err(SSTableError::InvalidSSTableFile);
@@ -160,7 +160,9 @@ mod tests {
     fn make_memtable_with_records(records: &[(&[u8], &[u8])]) -> (MemtableInner, PathBuf) {
         let (mut table, wal_path) = MemtableInner::new_for_test();
         for (key, data) in records {
-            table.insert_data_record(key.to_vec(), data.to_vec()).unwrap();
+            table
+                .insert_data_record(key.to_vec(), data.to_vec())
+                .unwrap();
         }
         (table, wal_path)
     }

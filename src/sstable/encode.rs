@@ -40,7 +40,7 @@ pub fn write_sstable(table: &MemtableInner, fd: &mut File) -> std::io::Result<()
      * Allocate an entire buffer of total size + number of records * 4 for variants.
      * DFS inorder to insert records in sorted order
      * */
-    let mut disk_size = 6_u64;
+    let mut disk_size = constants::HEADER_SIZE;
     let mut index_block: Vec<(Blob, u64)> =
         Vec::with_capacity(table.current_size / constants::DISK_BLOCK_SIZE as usize);
     let mut bloom_filter = BloomFilter::new(table.arena.len());

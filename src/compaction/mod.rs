@@ -245,16 +245,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_disjoint_keys_all_present() {
-        let (t0, _g0) = make_sstable(&[
-            (b"a", Some(b"va")),
-            (b"c", Some(b"vc")),
-        ])
-        .await;
-        let (t1, _g1) = make_sstable(&[
-            (b"b", Some(b"vb")),
-            (b"d", Some(b"vd")),
-        ])
-        .await;
+        let (t0, _g0) = make_sstable(&[(b"a", Some(b"va")), (b"c", Some(b"vc"))]).await;
+        let (t1, _g1) = make_sstable(&[(b"b", Some(b"vb")), (b"d", Some(b"vd"))]).await;
 
         let iters = vec![to_iter(t0).await, to_iter(t1).await];
         let (mut compact, compact_path) = run_compaction(iters);
@@ -305,11 +297,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_output_keys_are_sorted() {
-        let (t0, _g0) = make_sstable(&[
-            (b"z", Some(b"vz")),
-            (b"a", Some(b"va")),
-        ])
-        .await;
+        let (t0, _g0) = make_sstable(&[(b"z", Some(b"vz")), (b"a", Some(b"va"))]).await;
 
         let iters = vec![to_iter(t0).await];
         let (mut compact, compact_path) = run_compaction(iters);

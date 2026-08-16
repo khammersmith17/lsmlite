@@ -1,4 +1,5 @@
 use super::SSTable;
+use crate::constants;
 use crate::disk::decode;
 use crate::memtable::record::Record;
 use std::fs::File;
@@ -11,17 +12,17 @@ pub struct SSTableIterator {
     offset: usize,
 }
 
+// TODO: Figure out better approach here to handle IO errors.
 impl SSTableIterator {
     pub async fn new(table: Arc<Mutex<SSTable>>) -> SSTableIterator {
         let buffer = {
             let mut handle = table.lock().await;
             let data_block_end = handle.index.data_block_end;
             let fd: &mut File = &mut handle.fd;
-            // TODO: Figure out better approach here to handle IO errors.
-            let _ = fd.seek(SeekFrom::Start(6));
-            let mut buffer = vec![0_u8; data_block_end as usize - 6_usize];
 
-            // TODO: Figure out better approach here to handle IO errors.
+            // Seek past header.
+            let _ = fd.seek(SeekFrom::Start(constants::HEADER_SIZE));
+            let mut buffer = vec![0_u8; data_block_end as usize - constants::HEADER_SIZE as usize];
             let _ = fd.read_exact(&mut buffer);
             buffer
         };

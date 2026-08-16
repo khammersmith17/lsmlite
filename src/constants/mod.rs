@@ -1,7 +1,8 @@
 // SSTABLE HEADER
 pub const LSMLITE_SSTABLE_HEADER: [u8; 7] = *b"lsmlite";
 pub const V0_HEADER: u16 = 0_u16;
-pub const HEADER_SIZE: u64 = 6_u64;
+// size of magic header + version.
+pub const HEADER_SIZE: u64 = 9_u64;
 
 // DISK RECORD HEADERS
 pub const DATA_LOG_HEADER: u8 = 0_u8;
