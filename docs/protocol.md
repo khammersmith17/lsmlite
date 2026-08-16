@@ -192,23 +192,31 @@ Tombstones and data records are distinguished solely by the `value` field:
 
 ### Write path
 
-1. Client sends a request; the parser produces an `LsmliteRequest`.
+1. `LsmLite::set(key, value)`.
 2. The write is applied to the **active memtable** (red-black tree) and
    appended to the **WAL**.
 3. If the memtable is full (`TableFull`):
    - The active memtable is rotated into the **immutable memtable queue**.
    - A `MemtableFlushSignal::Flush` is sent to the background flush task.
    - A fresh memtable is created and the write is retried.
-4. The write-through **LRU cache** is evicted for the key on any write or
-   delete.
+
+### Delete path
+
+1. `LsmLite::delete(key)`.
+2. A tombstone write is applied to the **active memtable** (red-black tree) and
+   appended to the **WAL**.
+3. If the memtable is full (`TableFull`):
+   - The active memtable is rotated into the **immutable memtable queue**.
+   - A `MemtableFlushSignal::Flush` is sent to the background flush task.
+   - A fresh memtable is created and the write is retried.
+
 
 ### Read path (newest-first)
 
-1. Check the **LRU cache** — return immediately on hit.
-2. Check the **active memtable**.
-3. Check the **immutable memtable queue** (newest to oldest).
-4. Check the **SSTable cache** (newest SSTable first).
-5. A tombstone at any layer stops the search and returns nothing.
+1. Check the **active memtable**.
+2. Check the **immutable memtable queue** (newest to oldest).
+3. Check the **SSTable cache** (newest SSTable first).
+4. A tombstone at any layer stops the search and returns nothing.
 
 ### Background flush task
 
