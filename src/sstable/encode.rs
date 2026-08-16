@@ -1,5 +1,4 @@
 use crate::constants;
-use crate::disk::encode;
 use crate::memtable::inner::{Blob, MemtableInner};
 use crate::sstable::bloom_filter::BloomFilter;
 use crate::util;
@@ -45,7 +44,7 @@ pub fn write_sstable(table: &MemtableInner, fd: &mut File) -> std::io::Result<()
     let mut index_block: Vec<(Blob, u64)> =
         Vec::with_capacity(table.current_size / constants::DISK_BLOCK_SIZE as usize);
     let mut bloom_filter = BloomFilter::new(table.arena.len());
-    let _ = fd.write(&constants::NLDB_SSTABLE_HEADER)?;
+    let _ = fd.write(&constants::LSMLITE_SSTABLE_HEADER)?;
     let _ = fd.write(&constants::V0_HEADER.to_be_bytes())?;
 
     inorder_flush(
@@ -99,13 +98,13 @@ fn inorder_flush(
         let current_node = &table.arena[node_idx];
         let before = *disk_size % constants::DISK_BLOCK_SIZE;
         let record_offset = *disk_size;
-        let disk_record = encode::encode_memtable_node(current_node);
-        bloom_filter.insert(&current_node.key);
+        let disk_record = current_node.copy_record();
+        bloom_filter.insert(&current_node.key());
         *disk_size += disk_record.len() as u64;
         let after = *disk_size % constants::DISK_BLOCK_SIZE;
 
         if before > after || record_offset == constants::HEADER_SIZE {
-            index_block.push((current_node.key.clone(), record_offset));
+            index_block.push((current_node.copy_key(), record_offset));
         }
         let _ = fd.write(&disk_record)?;
     }

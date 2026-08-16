@@ -1,6 +1,6 @@
 use crate::constants;
-use crate::disk::{DiskRecord, encode};
 use crate::memtable::inner::Blob;
+use crate::memtable::record::Record;
 use crate::sstable::{
     bloom_filter::BloomFilter,
     encode::{encode_footer, encode_index_block},
@@ -40,7 +40,7 @@ impl CompactionWriter {
         let filename = util::generate_sstable_file_name();
         let mut fd = File::create(&filename)?;
 
-        let _ = fd.write(&constants::NLDB_SSTABLE_HEADER)?;
+        let _ = fd.write(&constants::LSMLITE_SSTABLE_HEADER)?;
         let _ = fd.write(&constants::V0_HEADER.to_be_bytes())?;
 
         let index = Vec::with_capacity(1024);
@@ -59,9 +59,9 @@ impl CompactionWriter {
 
     /// Push a data record into the SSTable file.
     /// Expects a data record, not a tombstone record.
-    pub fn push(&mut self, record: DiskRecord) -> std::io::Result<()> {
-        self.bloom_filter.insert(&record.key);
-        let encoded_record = encode::merge_encode_record(record);
+    pub fn push(&mut self, record: Record) -> std::io::Result<()> {
+        self.bloom_filter.insert(record.key());
+        let encoded_record: Blob = record.into();
         let record_size = encoded_record.len();
 
         let before = self.disk_offset % constants::DISK_BLOCK_SIZE;

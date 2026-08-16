@@ -1,5 +1,6 @@
 use super::SSTable;
-use crate::disk::{DiskRecord, decode};
+use crate::disk::decode;
+use crate::memtable::record::Record;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::sync::Arc;
@@ -32,7 +33,7 @@ impl SSTableIterator {
 }
 
 impl Iterator for SSTableIterator {
-    type Item = DiskRecord;
+    type Item = Record;
     fn next(&mut self) -> Option<Self::Item> {
         if self.offset >= self.buffer.len() {
             return None;

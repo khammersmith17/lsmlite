@@ -2,9 +2,8 @@ pub mod decode;
 pub mod encode;
 use crate::constants;
 use crate::error::SSTableError;
-use crate::memtable::inner::{Blob, NodeData};
+use crate::memtable::inner::Blob;
 use crate::util;
-use std::cmp::Ordering;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 
@@ -19,32 +18,6 @@ use std::io::{Read, Seek, SeekFrom};
 
 fn is_tombstone(header: u8) -> bool {
     header == constants::TOMBSTONE_LOG_HEADER
-}
-
-pub struct DiskRecord {
-    pub key: Blob,
-    pub data: NodeData,
-}
-
-impl PartialEq for DiskRecord {
-    fn eq(&self, other: &Self) -> bool {
-        self.key == other.key
-    }
-}
-
-impl Eq for DiskRecord {}
-
-// Sort based on Keys.
-impl PartialOrd for DiskRecord {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.key.cmp(&other.key))
-    }
-}
-
-impl Ord for DiskRecord {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
-    }
 }
 
 pub fn search_data_block(
@@ -167,18 +140,15 @@ fn read_oversized_record_from_disk(
 #[cfg(test)]
 mod tests {
     use crate::disk::decode::decode_disk_record;
-    use crate::disk::encode::{encode_insert_record, encode_tombstone_record};
-    use crate::memtable::inner::NodeData;
-    use crate::util;
+    use crate::disk::encode;
+    use crate::memtable::inner::Blob;
 
-    fn make_insert_record(key: &[u8], data: &[u8]) -> Vec<u8> {
-        let (key_varint, varint_len) = util::encode_varint(key.len());
-        encode_insert_record(key, &key_varint[..varint_len], data)
+    fn make_insert_record(key: &[u8], data: &[u8]) -> Blob {
+        encode::encode_data_record(key.to_vec(), data.to_vec()).into()
     }
 
-    fn make_tombstone_record(key: &[u8]) -> Vec<u8> {
-        let (key_varint, varint_len) = util::encode_varint(key.len());
-        encode_tombstone_record(key, &key_varint[..varint_len])
+    fn make_tombstone_record(key: &[u8]) -> Blob {
+        encode::encode_tombstone_record(key.to_vec()).into()
     }
 
     #[test]
@@ -190,8 +160,8 @@ mod tests {
         let mut offset = 0;
         let record = decode_disk_record(&buf, &mut offset).unwrap();
 
-        assert_eq!(record.key, key);
-        assert!(matches!(record.data, NodeData::Data(ref d) if d == data));
+        assert_eq!(record.key(), key.as_slice());
+        assert_eq!(record.value(), Some(data.as_slice()));
         assert_eq!(offset, buf.len());
     }
 
@@ -203,8 +173,8 @@ mod tests {
         let mut offset = 0;
         let record = decode_disk_record(&buf, &mut offset).unwrap();
 
-        assert_eq!(record.key, key);
-        assert!(matches!(record.data, NodeData::Tombstone));
+        assert_eq!(record.key(), key.as_slice());
+        assert!(record.value().is_none());
         assert_eq!(offset, buf.len());
     }
 
@@ -216,8 +186,8 @@ mod tests {
         let mut offset = 0;
         let record = decode_disk_record(&buf, &mut offset).unwrap();
 
-        assert_eq!(record.key, key);
-        assert!(matches!(record.data, NodeData::Data(ref d) if d.is_empty()));
+        assert_eq!(record.key(), key.as_slice());
+        assert_eq!(record.value(), Some(b"".as_slice()));
     }
 
     #[test]
@@ -229,8 +199,8 @@ mod tests {
         let mut offset = 0;
         let record = decode_disk_record(&buf, &mut offset).unwrap();
 
-        assert_eq!(record.key, key);
-        assert!(matches!(record.data, NodeData::Data(ref d) if *d == data));
+        assert_eq!(record.key(), key.as_slice());
+        assert_eq!(record.value(), Some(data.as_slice()));
         assert_eq!(offset, buf.len());
     }
 
@@ -250,12 +220,12 @@ mod tests {
         let r2 = decode_disk_record(&combined, &mut offset).unwrap();
         let r3 = decode_disk_record(&combined, &mut offset).unwrap();
 
-        assert_eq!(r1.key, b"alpha");
-        assert!(matches!(r1.data, NodeData::Data(ref d) if d == b"1"));
-        assert_eq!(r2.key, b"beta");
-        assert!(matches!(r2.data, NodeData::Tombstone));
-        assert_eq!(r3.key, b"gamma");
-        assert!(matches!(r3.data, NodeData::Data(ref d) if d == b"3"));
+        assert_eq!(r1.key(), b"alpha".as_slice());
+        assert_eq!(r1.value(), Some(b"1".as_slice()));
+        assert_eq!(r2.key(), b"beta".as_slice());
+        assert!(r2.value().is_none());
+        assert_eq!(r3.key(), b"gamma".as_slice());
+        assert_eq!(r3.value(), Some(b"3".as_slice()));
         assert_eq!(offset, combined.len());
     }
 

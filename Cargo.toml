@@ -1,10 +1,9 @@
 [package]
-name = "nldb"
+name = "lsmlite"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dash_cache = "0.1.0"
 memmap2 = "0.9.10"
 rayon = "1.12.0"
 tokio = {version = "1.52.3", features = [ "full" ] }

@@ -1,10 +1,10 @@
 // SSTABLE HEADER
-pub const NLDB_SSTABLE_HEADER: [u8; 4] = [78, 76, 68, 66];
+pub const LSMLITE_SSTABLE_HEADER: [u8; 4] = [78, 76, 68, 66]; // TODO: Fix this
 pub const V0_HEADER: u16 = 0_u16;
 pub const HEADER_SIZE: u64 = 6_u64;
 
 // DISK RECORD HEADERS
-pub const INSERT_LOG_HEADER: u8 = 0_u8;
+pub const DATA_LOG_HEADER: u8 = 0_u8;
 pub const TOMBSTONE_LOG_HEADER: u8 = 1_u8;
 
 // DEFAULT SSTABLE CONFIGS
@@ -24,7 +24,7 @@ pub const DEFAULT_MAX_MEMTABLE_SIZE: u64 = 4_000_000_u64; // 4 MB
 pub const DEFAULT_MEMTABLE_FLUSH_QUEUE: u64 = 100_u64;
 
 // CONFIG FILE PATH
-pub const NLDB_CONFIG_FILE_PATH: &str = "nldb_conf.yaml";
+pub const LSMLITE_CONFIG_FILE_PATH: &str = "lsmlite_conf.yaml";
 
 // TCP ADDRESS
 pub const TCP_ADDRESS: &str = "127.0.0.1:7211";

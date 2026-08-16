@@ -1,19 +1,17 @@
 use crate::compaction::{CompactionSignal, SSTableLoadAck, sstable_background};
-use crate::config::NldbConfig;
+use crate::config::LsmliteConfig;
 use crate::error::MemtableError;
 use crate::memtable::{
     Memtable,
     immutable::ImmutableMemtable,
-    inner::{Blob, MemtableFlushSignal, MemtableQuery, NodeData, flush_memtable},
+    inner::{Blob, MemtableFlushSignal, MemtableQuery, flush_memtable},
 };
 use crate::restart::{SSTableArtifact, WalArtifact};
 use crate::sstable::SSTableCache;
-use dash_cache::DashCache;
-use std::num::NonZeroUsize;
 use std::sync::{Arc, atomic::AtomicBool};
 use tokio::sync::mpsc::{self, Sender};
 
-fn construct_memtable(live_wal: Option<WalArtifact>, config: &NldbConfig) -> Memtable {
+fn construct_memtable(live_wal: Option<WalArtifact>, config: &LsmliteConfig) -> Memtable {
     if let Some(wal) = live_wal {
         Memtable::new_from_wal(
             &wal.filename,
@@ -32,7 +30,7 @@ fn construct_memtable(live_wal: Option<WalArtifact>, config: &NldbConfig) -> Mem
 
 fn construct_sstable_cache(
     sstable_files: Vec<SSTableArtifact>,
-    config: &NldbConfig,
+    config: &LsmliteConfig,
 ) -> SSTableCache {
     if sstable_files.is_empty() {
         SSTableCache::new(config.compaction_rate as usize)
@@ -45,32 +43,26 @@ fn construct_sstable_cache(
 /// On write/delete, if that memtable is full, it will return an error. On
 /// [MemtableError::TableFull], the table will be rotated out while being flushed.
 ///
-/// Type is wrapped with Arc in the publicly exposed type, `[super::Nldb]`.
+/// Type is wrapped with Arc in the publicly exposed type, `[super::LsmLite]`.
 #[derive(Debug)]
-pub(super) struct NldbInner {
+pub(super) struct LsmliteInner {
     memtable: Memtable,
     sstable_cache: SSTableCache,
-    cache: DashCache<Blob, Blob>,
     poisoned: Arc<AtomicBool>,
     signal: Sender<CompactionSignal>,
     memtable_channel: Sender<MemtableFlushSignal>,
     immutable: ImmutableMemtable,
 }
 
-impl NldbInner {
+impl LsmliteInner {
     /// Construct a new in memory database instance. If there is existing state, the "restart" path
     /// is used to read in current state, otherwise, an empty state is created.
     pub(super) fn new(
         sstable_files: Vec<SSTableArtifact>,
         mut wal_files: Vec<WalArtifact>,
-        config: &NldbConfig,
-    ) -> NldbInner {
+        config: &LsmliteConfig,
+    ) -> LsmliteInner {
         let memtable = construct_memtable(wal_files.pop(), config);
-
-        let cache: DashCache<Blob, Blob> = DashCache::with_num_shards_and_capacity(
-            NonZeroUsize::new(config.cache_shards as usize).unwrap(),
-            NonZeroUsize::new(config.cache_size as usize).unwrap(),
-        );
 
         let sstable_cache = construct_sstable_cache(sstable_files, config);
         let poisoned = Arc::new(AtomicBool::new(false));
@@ -103,10 +95,9 @@ impl NldbInner {
             sstable_ack_rx,
         ));
 
-        NldbInner {
+        LsmliteInner {
             memtable,
             sstable_cache,
-            cache,
             poisoned,
             signal,
             immutable,
@@ -120,24 +111,16 @@ impl NldbInner {
     // Fourth check SSTables.
     pub(super) async fn get(&self, key: &[u8]) -> Option<Blob> {
         self.check_poison_flag();
-        let cached = self.cache.get(key).await;
-
-        if cached.is_some() {
-            return cached;
-        }
 
         if let Some(blob) = self.read_memtable(&key).await {
-            self.read_through_cache(key.to_owned(), blob.clone()).await;
             return Some(blob);
         }
 
         if let Some(blob) = self.read_immutable_table(&key).await {
-            self.read_through_cache(key.to_owned(), blob.clone()).await;
             return Some(blob);
         }
 
         if let Ok(value) = self.sstable_cache.search(&key).await {
-            self.read_through_cache(key.to_owned(), value.clone()).await;
             return Some(value);
         }
 
@@ -160,20 +143,8 @@ impl NldbInner {
         }
     }
 
-    async fn read_through_cache(&self, key: Blob, value: Blob) {
-        self.cache.insert(key, value.clone()).await;
-    }
-
-    // Evict a key if cached on a insert/delete. DashCache internally handles the evict only if it
-    // exists.
-    #[inline]
-    async fn evict_if_cached(&self, key: &[u8]) {
-        let _ = self.cache.evict(key).await;
-    }
-
     pub(super) async fn delete(&self, key: Blob) {
         self.check_poison_flag();
-        self.evict_if_cached(&key).await;
         match self.memtable.delete(key).await {
             Ok(_) => {}
             Err(e) => {
@@ -181,10 +152,10 @@ impl NldbInner {
                 self.rotate_table().await;
                 // SAFETY: We now know the memtable has space.
                 match value {
-                    NodeData::Data(_) => {
+                    Some(_) => {
                         unreachable!()
                     }
-                    NodeData::Tombstone => {
+                    None => {
                         let _ = self.memtable.delete(key).await;
                     }
                 }
@@ -192,9 +163,8 @@ impl NldbInner {
         }
     }
 
-    pub(super) async fn write(&self, key: Blob, value: Blob) {
+    pub(super) async fn set(&self, key: Blob, value: Blob) {
         self.check_poison_flag();
-        self.evict_if_cached(&key).await;
         match self.memtable.insert(key, value).await {
             Ok(_) => (),
             Err(e) => {
@@ -202,10 +172,10 @@ impl NldbInner {
                 self.rotate_table().await;
                 // SAFETY: We now know the memtable has space.
                 match value {
-                    NodeData::Data(blob) => {
+                    Some(blob) => {
                         let _ = self.memtable.insert(key, blob).await;
                     }
-                    NodeData::Tombstone => {
+                    None => {
                         unreachable!()
                     }
                 }
@@ -235,7 +205,7 @@ impl NldbInner {
     }
 }
 
-impl Drop for NldbInner {
+impl Drop for LsmliteInner {
     fn drop(&mut self) {
         // When this is dropped, signal to the compaction and memtable flush background threads
         // to exit, to gracefully handle shutdown on exit.

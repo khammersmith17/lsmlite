@@ -1,5 +1,7 @@
-use crate::disk::DiskRecord;
-use crate::memtable::{immutable::ImmutableMemtable, inner::NodeData};
+use crate::memtable::{
+    immutable::ImmutableMemtable,
+    record::{Record, RecordType},
+};
 use crate::sstable::iterator::SSTableIterator;
 use crate::sstable::{SSTable, SSTableCache, compaction_writer::CompactionWriter};
 use std::cmp::Ordering;
@@ -23,7 +25,7 @@ pub enum SSTableLoadAck {
 
 #[derive(PartialEq, Eq)]
 struct HeapNode {
-    record: DiskRecord,
+    record: Record,
     table_idx: usize,
 }
 
@@ -31,13 +33,13 @@ impl PartialOrd for HeapNode {
     // First compare on key.
     // If key is the same, the large key wins here (Reverse in BinaryHeap implementation).
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.record.cmp(&other.record))
+        Some(self.record.cmp_key(&other.record))
     }
 }
 
 impl Ord for HeapNode {
     fn cmp(&self, other: &Self) -> Ordering {
-        let ord = self.record.cmp(&other.record);
+        let ord = self.record.cmp_key(&other.record);
         match ord {
             Ordering::Equal => self.table_idx.cmp(&other.table_idx),
             _ => ord,
@@ -46,7 +48,7 @@ impl Ord for HeapNode {
 }
 
 impl HeapNode {
-    fn new(record: DiskRecord, table_idx: usize) -> HeapNode {
+    fn new(record: Record, table_idx: usize) -> HeapNode {
         HeapNode { record, table_idx }
     }
 }
@@ -161,11 +163,11 @@ pub(crate) fn run_compaction(mut table_iters: Vec<SSTableIterator>) -> (SSTable,
             break;
         };
 
-        let smallest_key = &smallest.record.key;
+        let smallest_key = &smallest.record.key();
 
         while let Some(record_ref) = heap.peek() {
             let inner_ref = &record_ref.0;
-            if &inner_ref.record.key != smallest_key {
+            if &inner_ref.record.key() != smallest_key {
                 break;
             }
             let table_idx = inner_ref.table_idx;
@@ -182,7 +184,7 @@ pub(crate) fn run_compaction(mut table_iters: Vec<SSTableIterator>) -> (SSTable,
             table_idx,
         } = smallest;
 
-        if matches!(disk_record.data, NodeData::Data(_)) {
+        if matches!(disk_record.record_type(), RecordType::Data) {
             let _ = writer.push(disk_record);
         }
 
@@ -201,7 +203,7 @@ pub(crate) fn run_compaction(mut table_iters: Vec<SSTableIterator>) -> (SSTable,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memtable::inner::{MemtableInner, NodeData};
+    use crate::memtable::inner::MemtableInner;
     use crate::sstable::SSTable;
     use crate::sstable::iterator::SSTableIterator;
 
@@ -219,10 +221,14 @@ mod tests {
         format!("test_compaction_{id}.sstable").into()
     }
 
-    async fn make_sstable(entries: &[(&[u8], NodeData)]) -> (SSTable, TempFile) {
+    // None = tombstone, Some(v) = data record
+    async fn make_sstable(entries: &[(&[u8], Option<&[u8]>)]) -> (SSTable, TempFile) {
         let (mut inner, wal_path) = MemtableInner::new_for_test();
         for (key, data) in entries {
-            inner.insert(key.to_vec(), data.clone()).unwrap();
+            match data {
+                Some(v) => inner.insert_data_record(key.to_vec(), v.to_vec()).unwrap(),
+                None => inner.insert_tombstone_record(key.to_vec()).unwrap(),
+            }
         }
         let path = unique_test_path();
         let mut fd = std::fs::File::create(&path).unwrap();
@@ -240,13 +246,13 @@ mod tests {
     #[tokio::test]
     async fn test_disjoint_keys_all_present() {
         let (t0, _g0) = make_sstable(&[
-            (b"a", NodeData::Data(b"va".to_vec())),
-            (b"c", NodeData::Data(b"vc".to_vec())),
+            (b"a", Some(b"va")),
+            (b"c", Some(b"vc")),
         ])
         .await;
         let (t1, _g1) = make_sstable(&[
-            (b"b", NodeData::Data(b"vb".to_vec())),
-            (b"d", NodeData::Data(b"vd".to_vec())),
+            (b"b", Some(b"vb")),
+            (b"d", Some(b"vd")),
         ])
         .await;
 
@@ -263,8 +269,8 @@ mod tests {
     #[tokio::test]
     async fn test_newer_table_wins_on_duplicate_key() {
         // index 0 = newer (matches SSTableCache push_front ordering)
-        let (newer, _g0) = make_sstable(&[(b"k", NodeData::Data(b"new_val".to_vec()))]).await;
-        let (older, _g1) = make_sstable(&[(b"k", NodeData::Data(b"old_val".to_vec()))]).await;
+        let (newer, _g0) = make_sstable(&[(b"k", Some(b"new_val"))]).await;
+        let (older, _g1) = make_sstable(&[(b"k", Some(b"old_val"))]).await;
 
         let iters = vec![to_iter(newer).await, to_iter(older).await];
         let (mut compact, compact_path) = run_compaction(iters);
@@ -275,7 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tombstone_dropped_from_output() {
-        let (t0, _g0) = make_sstable(&[(b"k", NodeData::Tombstone)]).await;
+        let (t0, _g0) = make_sstable(&[(b"k", None)]).await;
 
         let iters = vec![to_iter(t0).await];
         let (mut compact, compact_path) = run_compaction(iters);
@@ -287,8 +293,8 @@ mod tests {
     #[tokio::test]
     async fn test_tombstone_hides_older_data() {
         // Newer table (idx 0) has tombstone, older has data — key must not appear in output.
-        let (newer, _g0) = make_sstable(&[(b"k", NodeData::Tombstone)]).await;
-        let (older, _g1) = make_sstable(&[(b"k", NodeData::Data(b"stale".to_vec()))]).await;
+        let (newer, _g0) = make_sstable(&[(b"k", None)]).await;
+        let (older, _g1) = make_sstable(&[(b"k", Some(b"stale"))]).await;
 
         let iters = vec![to_iter(newer).await, to_iter(older).await];
         let (mut compact, compact_path) = run_compaction(iters);
@@ -300,8 +306,8 @@ mod tests {
     #[tokio::test]
     async fn test_output_keys_are_sorted() {
         let (t0, _g0) = make_sstable(&[
-            (b"z", NodeData::Data(b"vz".to_vec())),
-            (b"a", NodeData::Data(b"va".to_vec())),
+            (b"z", Some(b"vz")),
+            (b"a", Some(b"va")),
         ])
         .await;
 

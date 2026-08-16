@@ -1,6 +1,6 @@
-# nldb Protocol
+# lsmlite Protocol
 
-nldb is an LSM-tree key-value store. This document describes the client request
+lsmlite is an LSM-tree key-value store. This document describes the client request
 protocol, the on-disk file formats (WAL and SSTable), and the internal storage
 architecture.
 
@@ -82,7 +82,7 @@ DELETE <key_len_varint><key>
 
 ### Error conditions
 
-The parser returns `NldbError::InvalidQuery` for any of the following:
+The parser returns `LsmliteError::InvalidQuery` for any of the following:
 
 - Unknown command token
 - No space after the command (payload too short)
@@ -244,12 +244,12 @@ tree).
 
 ```
 [78, 76, 68, 66][version_u16_be]
-  "NLDB"       currently 0x0000
+  "LSML"       currently 0x0000
 ```
 
 | Field   | Size | Description               |
 |---------|------|---------------------------|
-| magic   | 4    | `0x4E 0x4C 0x44 0x42` ("NLDB") |
+| magic   | 4    | `0x4E 0x4C 0x44 0x42` ("LSML") |
 | version | 2    | big-endian u16, currently `0` |
 
 ### Data block records
@@ -303,7 +303,7 @@ Three big-endian u64 values at a fixed offset from the end of the file:
 
 ### Write path
 
-1. Client sends a request; the parser produces an `NldbRequest`.
+1. Client sends a request; the parser produces an `LsmliteRequest`.
 2. The write is applied to the **active memtable** (red-black tree) and
    appended to the **WAL**.
 3. If the memtable is full (`TableFull`):

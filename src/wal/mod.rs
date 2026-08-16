@@ -1,7 +1,6 @@
 use super::constants;
-use crate::disk::encode;
-use crate::disk::{DiskRecord, decode};
-use crate::memtable::inner::MemtableNode;
+use crate::disk::decode;
+use crate::memtable::{inner::MemtableNode, record::Record};
 use crate::util;
 use memmap2::{Mmap, MmapOptions};
 use std::fs::File;
@@ -72,8 +71,7 @@ impl Wal {
             self.flush()
         }
 
-        let log = encode::encode_memtable_node(node);
-        self.buffer.extend(log);
+        self.buffer.extend(node.copy_record());
     }
 
     #[cfg(test)]
@@ -109,7 +107,7 @@ impl WalIterator {
 }
 
 impl Iterator for WalIterator {
-    type Item = DiskRecord;
+    type Item = Record;
     fn next(&mut self) -> Option<Self::Item> {
         if self.offset >= self.buffer.len() {
             return None;
@@ -122,7 +120,7 @@ impl Iterator for WalIterator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memtable::inner::{MemtableNode, NodeData};
+    use crate::memtable::inner::MemtableNode;
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -145,11 +143,11 @@ mod tests {
     }
 
     fn data_node(key: &[u8], value: &[u8]) -> MemtableNode {
-        MemtableNode::new_for_test(key.to_vec(), NodeData::Data(value.to_vec()))
+        MemtableNode::new_for_test(key.to_vec(), value.to_vec())
     }
 
     fn tombstone_node(key: &[u8]) -> MemtableNode {
-        MemtableNode::new_for_test(key.to_vec(), NodeData::Tombstone)
+        MemtableNode::new_tombstone_for_test(key.to_vec())
     }
 
     #[test]
@@ -160,8 +158,8 @@ mod tests {
 
         let records: Vec<_> = WalIterator::new(&guard.0).unwrap().collect();
         assert_eq!(records.len(), 1);
-        assert_eq!(records[0].key, b"hello");
-        assert_eq!(records[0].data, NodeData::Data(b"world".to_vec()));
+        assert_eq!(records[0].key(), b"hello".as_slice());
+        assert_eq!(records[0].value(), Some(b"world".as_slice()));
     }
 
     #[test]
@@ -172,23 +170,23 @@ mod tests {
 
         let records: Vec<_> = WalIterator::new(&guard.0).unwrap().collect();
         assert_eq!(records.len(), 1);
-        assert_eq!(records[0].key, b"gone");
-        assert_eq!(records[0].data, NodeData::Tombstone);
+        assert_eq!(records[0].key(), b"gone".as_slice());
+        assert!(records[0].value().is_none());
     }
 
     #[test]
     fn test_multiple_records_in_order() {
         let (mut wal, guard) = make_wal();
         for i in 0..5u8 {
-            wal.write_log(&data_node(&format!("k{:?}", i).as_bytes(), &[i]));
+            wal.write_log(&data_node(format!("k{i:?}").as_bytes(), &[i]));
         }
         wal.flush_for_test();
 
         let records: Vec<_> = WalIterator::new(&guard.0).unwrap().collect();
         assert_eq!(records.len(), 5);
         for i in 0..5u8 {
-            assert_eq!(records[i as usize].key, format!("k{:?}", i).as_bytes());
-            assert_eq!(records[i as usize].data, NodeData::Data(vec![i]));
+            assert_eq!(records[i as usize].key(), format!("k{i:?}").as_bytes());
+            assert_eq!(records[i as usize].value(), Some([i].as_slice()));
         }
     }
 
@@ -202,9 +200,9 @@ mod tests {
 
         let records: Vec<_> = WalIterator::new(&guard.0).unwrap().collect();
         assert_eq!(records.len(), 3);
-        assert_eq!(records[0].data, NodeData::Data(b"v1".to_vec()));
-        assert_eq!(records[1].data, NodeData::Tombstone);
-        assert_eq!(records[2].data, NodeData::Data(b"v3".to_vec()));
+        assert_eq!(records[0].value(), Some(b"v1".as_slice()));
+        assert!(records[1].value().is_none());
+        assert_eq!(records[2].value(), Some(b"v3".as_slice()));
     }
 
     #[test]

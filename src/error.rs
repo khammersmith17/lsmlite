@@ -1,8 +1,8 @@
-use crate::memtable::inner::{Blob, NodeData};
+use crate::memtable::inner::Blob;
 use std::string::FromUtf8Error;
 #[derive(Debug)]
 pub enum MemtableError {
-    TableFull(Blob, NodeData),
+    TableFull(Blob, Option<Blob>),
 }
 
 #[derive(Debug)]
@@ -20,7 +20,7 @@ impl From<std::io::Error> for SSTableError {
 }
 
 #[derive(Debug)]
-pub enum NldbError {
+pub enum LsmliteError {
     InvalidQuery,
     InvalidParameter,
     InvalidConfigFile(yaml_serde::Error),
@@ -29,26 +29,26 @@ pub enum NldbError {
     RecordSizeConstraint,
 }
 
-impl From<FromUtf8Error> for NldbError {
-    fn from(_err: FromUtf8Error) -> NldbError {
-        NldbError::InvalidQuery
+impl From<FromUtf8Error> for LsmliteError {
+    fn from(_err: FromUtf8Error) -> LsmliteError {
+        LsmliteError::InvalidQuery
     }
 }
 
-impl From<std::num::ParseIntError> for NldbError {
-    fn from(_err: std::num::ParseIntError) -> NldbError {
-        NldbError::InvalidParameter
+impl From<std::num::ParseIntError> for LsmliteError {
+    fn from(_err: std::num::ParseIntError) -> LsmliteError {
+        LsmliteError::InvalidParameter
     }
 }
 
-impl From<std::io::Error> for NldbError {
-    fn from(err: std::io::Error) -> NldbError {
-        NldbError::IOError(err)
+impl From<std::io::Error> for LsmliteError {
+    fn from(err: std::io::Error) -> LsmliteError {
+        LsmliteError::IOError(err)
     }
 }
 
-impl From<yaml_serde::Error> for NldbError {
-    fn from(err: yaml_serde::Error) -> NldbError {
-        NldbError::InvalidConfigFile(err)
+impl From<yaml_serde::Error> for LsmliteError {
+    fn from(err: yaml_serde::Error) -> LsmliteError {
+        LsmliteError::InvalidConfigFile(err)
     }
 }

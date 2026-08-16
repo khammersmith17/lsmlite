@@ -1,4 +1,4 @@
-use crate::error::NldbError;
+use crate::memtable::inner::Blob;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -6,37 +6,46 @@ const LEAST_BYTE_USIZE: usize = 0x7F;
 const LEAST_BYTE_U8: u8 = 0x7F;
 const CONTINUATION: u8 = 0x80;
 
-pub fn get_be_array8(buffer: &[u8], offset: usize) -> [u8; 8] {
+/// Make a blob buffer of size and set the len.
+/// The buffer will be written to immediately, so the garbage data is ok.
+pub(crate) fn make_blob_buffer(size: usize) -> Blob {
+    let mut buffer = Vec::with_capacity(size);
+    // SAFETY: The garbage data will be immediately overwritten.
+    unsafe { buffer.set_len(size) };
+    buffer
+}
+
+pub(crate) fn get_be_array8(buffer: &[u8], offset: usize) -> [u8; 8] {
     buffer[offset..offset + 8]
         .try_into()
         .expect("Invalid size slice when deserializing bloom filter")
 }
 
-pub fn get_be_array2(buffer: Vec<u8>) -> [u8; 2] {
+pub(crate) fn get_be_array2(buffer: Vec<u8>) -> [u8; 2] {
     buffer
         .try_into()
         .expect("Invalid size slice when deserializing bloom filter")
 }
 
-pub fn generate_wal_file_name() -> PathBuf {
+pub(crate) fn generate_wal_file_name() -> PathBuf {
     let start_ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    format!("wal.{start_ts}.log").into()
+    format!("lsmlite.wal.{start_ts}.log").into()
 }
 
-pub fn generate_sstable_file_name() -> PathBuf {
+pub(crate) fn generate_sstable_file_name() -> PathBuf {
     let start_ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    format!("{start_ts}.sstable").into()
+    format!("lsmlite.{start_ts}.sstable").into()
 }
 
 // Given a length of a block on disk, derive the number of bytes it takes to represent the varint
 // for the length of this block.
-pub fn varint_size_from_len(len: usize) -> usize {
+pub(crate) fn varint_size_from_len(len: usize) -> usize {
     let mut size = 1_usize;
 
     let mut upper_bound = 1_usize << 7;
@@ -50,7 +59,7 @@ pub fn varint_size_from_len(len: usize) -> usize {
     size
 }
 
-pub fn encode_varint(mut value: usize) -> ([u8; 10], usize) {
+pub(crate) fn encode_varint(mut value: usize) -> ([u8; 10], usize) {
     let mut buffer = [0_u8; 10];
     let mut idx = 0_usize;
 
@@ -73,30 +82,7 @@ pub fn encode_varint(mut value: usize) -> ([u8; 10], usize) {
     (buffer, idx)
 }
 
-pub fn decode_untrusted_varint(
-    buffer: &[u8],
-    mut offset: usize,
-) -> Result<(u64, usize), NldbError> {
-    let end = buffer.len();
-    let mut varint = 0_u64;
-    let start = offset;
-
-    loop {
-        if offset >= end || offset - start >= 10 {
-            return Err(NldbError::InvalidQuery);
-        }
-        let byte = buffer[offset];
-        varint |= ((byte & LEAST_BYTE_U8) as u64) << (7 * (offset - start));
-        offset += 1;
-
-        if byte & CONTINUATION == 0 {
-            break;
-        }
-    }
-    Ok((varint, offset - start))
-}
-
-pub fn decode_varint(buffer: &[u8], mut offset: usize) -> (u64, usize) {
+pub(crate) fn decode_varint(buffer: &[u8], mut offset: usize) -> (u64, usize) {
     let mut varint = 0_u64;
     let start = offset;
 

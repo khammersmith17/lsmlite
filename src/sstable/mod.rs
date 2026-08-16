@@ -98,7 +98,7 @@ impl SSTableCache {
 fn validate_buffer_and_get_version(fd: &mut File) -> Result<u16, SSTableError> {
     let mut header_buffer = vec![0_u8; 4];
     fd.read_exact(&mut header_buffer)?;
-    if header_buffer != constants::NLDB_SSTABLE_HEADER {
+    if header_buffer != constants::LSMLITE_SSTABLE_HEADER {
         return Err(SSTableError::InvalidSSTableFile);
     }
 
@@ -153,27 +153,14 @@ impl SSTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memtable::inner::{MemtableInner, NodeData};
+    use crate::memtable::inner::MemtableInner;
     use crate::sstable::encode::write_sstable;
-    use crate::wal::Wal;
     use std::fs;
 
     fn make_memtable_with_records(records: &[(&[u8], &[u8])]) -> (MemtableInner, PathBuf) {
-        let wal_path: PathBuf =
-            format!("test_sstable_wal_{:?}.log", std::thread::current().id()).into();
-        let fd = fs::File::create(&wal_path).unwrap();
-        let wal = Wal::from_fd_and_path(fd, wal_path.clone());
-        let mut table = MemtableInner {
-            arena: Vec::with_capacity(64),
-            max_size: usize::MAX,
-            root_node: None,
-            current_size: 0,
-            wal,
-        };
+        let (mut table, wal_path) = MemtableInner::new_for_test();
         for (key, data) in records {
-            table
-                .insert(key.to_vec(), NodeData::Data(data.to_vec()))
-                .unwrap();
+            table.insert_data_record(key.to_vec(), data.to_vec()).unwrap();
         }
         (table, wal_path)
     }

@@ -36,7 +36,7 @@ impl DatabaseFile {
                     .expect("Unable to retrieve filename on file type parsing")
                     .to_str()
                     .expect("Unable to get string out of filename on file type parsing")
-                    .starts_with("wal") =>
+                    .starts_with("lsmlite.wal") =>
             {
                 Some(DatabaseFile::Wal)
             }
@@ -56,7 +56,7 @@ impl WalArtifact {
         // "wal.{ts}.log" → nth(1) is the timestamp
         let ts: u128 = name
             .split('.')
-            .nth(1)
+            .nth(2)
             .expect("Invalid WAL filename")
             .parse()
             .expect("Invalid WAL timestamp");
@@ -92,9 +92,11 @@ pub struct SSTableArtifact {
 impl SSTableArtifact {
     fn new(filename: PathBuf) -> SSTableArtifact {
         let name = filename.file_name().unwrap().to_str().unwrap();
+        let mut name_split = name.split('.');
+        let _ = name_split.next();
+
         // "{ts}.sstable" → next() is the timestamp
-        let ts: u128 = name
-            .split('.')
+        let ts: u128 = name_split
             .next()
             .expect("Invalid SSTable filename")
             .parse()
@@ -196,8 +198,8 @@ mod tests {
     #[test]
     fn test_sstable_files_detected() {
         let dir = TempDir::new();
-        dir.create("1000.sstable");
-        dir.create("2000.sstable");
+        dir.create("lsmlite.1000.sstable");
+        dir.create("lsmlite.2000.sstable");
         let (sstables, wals) = scan_directory(&dir.0);
         drop(dir);
         assert_eq!(sstables.len(), 2);
@@ -207,38 +209,38 @@ mod tests {
     #[test]
     fn test_sstables_sorted_newest_first() {
         let dir = TempDir::new();
-        dir.create("1000.sstable");
-        dir.create("3000.sstable");
-        dir.create("2000.sstable");
+        dir.create("lsmlite.1000.sstable");
+        dir.create("lsmlite.3000.sstable");
+        dir.create("lsmlite.2000.sstable");
         let (sstables, _) = scan_directory(&dir.0);
         drop(dir);
-        assert_eq!(sstables[0].filename.file_name().unwrap(), "3000.sstable");
-        assert_eq!(sstables[1].filename.file_name().unwrap(), "2000.sstable");
-        assert_eq!(sstables[2].filename.file_name().unwrap(), "1000.sstable");
+        assert_eq!(sstables[0].filename.file_name().unwrap(), "lsmlite.3000.sstable");
+        assert_eq!(sstables[1].filename.file_name().unwrap(), "lsmlite.2000.sstable");
+        assert_eq!(sstables[2].filename.file_name().unwrap(), "lsmlite.1000.sstable");
     }
 
     #[test]
     fn test_wal_file_detected() {
         let dir = TempDir::new();
-        dir.create("wal.1000.log");
+        dir.create("lsmlite.wal.1000.log");
         let (_, wals) = scan_directory(&dir.0);
         drop(dir);
         assert_eq!(wals.len(), 1);
-        assert_eq!(wals[0].filename.file_name().unwrap(), "wal.1000.log");
+        assert_eq!(wals[0].filename.file_name().unwrap(), "lsmlite.wal.1000.log");
     }
 
     #[test]
     fn test_multiple_wals_sorted_oldest_first() {
         let dir = TempDir::new();
-        dir.create("wal.3000.log");
-        dir.create("wal.1000.log");
-        dir.create("wal.2000.log");
+        dir.create("lsmlite.wal.3000.log");
+        dir.create("lsmlite.wal.1000.log");
+        dir.create("lsmlite.wal.2000.log");
         let (_, wals) = scan_directory(&dir.0);
         drop(dir);
         assert_eq!(wals.len(), 3);
-        assert_eq!(wals[0].filename.file_name().unwrap(), "wal.1000.log");
-        assert_eq!(wals[1].filename.file_name().unwrap(), "wal.2000.log");
-        assert_eq!(wals[2].filename.file_name().unwrap(), "wal.3000.log");
+        assert_eq!(wals[0].filename.file_name().unwrap(), "lsmlite.wal.1000.log");
+        assert_eq!(wals[1].filename.file_name().unwrap(), "lsmlite.wal.2000.log");
+        assert_eq!(wals[2].filename.file_name().unwrap(), "lsmlite.wal.3000.log");
     }
 
     #[test]
@@ -265,8 +267,8 @@ mod tests {
     #[test]
     fn test_both_wal_and_sstable_detected() {
         let dir = TempDir::new();
-        dir.create("1000.sstable");
-        dir.create("wal.2000.log");
+        dir.create("lsmlite.1000.sstable");
+        dir.create("lsmlite.wal.2000.log");
         let (sstables, wals) = scan_directory(&dir.0);
         drop(dir);
         assert_eq!(sstables.len(), 1);

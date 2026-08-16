@@ -1,5 +1,5 @@
 use super::WalArtifact;
-use crate::config::NldbConfig;
+use crate::config::LsmliteConfig;
 use crate::memtable::inner::MemtableInner;
 use rayon::prelude::*;
 use std::collections::VecDeque;
@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 pub fn read_immutable_tables(
     wal_files: &[WalArtifact],
-    config: &NldbConfig,
+    config: &LsmliteConfig,
 ) -> VecDeque<Arc<MemtableInner>> {
     wal_files
         .par_iter()
@@ -35,8 +35,8 @@ fn load_immutable_memtable_worker(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::NldbConfig;
-    use crate::memtable::inner::{MemtableNode, MemtableQuery, NodeData};
+    use crate::config::LsmliteConfig;
+    use crate::memtable::inner::{MemtableNode, MemtableQuery};
     use crate::wal::Wal;
     use std::fs;
     use std::path::PathBuf;
@@ -44,12 +44,11 @@ mod tests {
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-    fn config() -> NldbConfig {
-        NldbConfig {
+    fn config() -> LsmliteConfig {
+        LsmliteConfig {
             max_memtable_size: usize::MAX as u64,
             max_memtable_nodes: 64,
             compaction_rate: 10,
-            cache_size: 100,
             ..Default::default()
         }
     }
@@ -67,14 +66,14 @@ mod tests {
     fn make_wal(ts: u128, records: &[(&[u8], &[u8])]) -> (WalArtifact, WalGuard) {
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         let thread_id = std::thread::current().id();
-        // Format: "test_rworker_{thread_id}_{id}_wal.{ts}.log"
-        // split('.') → ["test_rworker_..._wal", "{ts}", "log"] → nth(1) = ts ✓
-        let path: PathBuf = format!("test_rworker_{thread_id:?}_{id}_wal.{ts}.log").into();
+        // Format: "test_rworker_{thread_id}_{id}.wal.{ts}.log"
+        // split('.') → ["test_rworker_...", "wal", "{ts}", "log"] → nth(2) = ts ✓
+        let path: PathBuf = format!("test_rworker_{thread_id:?}_{id}.wal.{ts}.log").into();
 
         let fd = fs::File::create(&path).unwrap();
         let mut wal = Wal::from_fd_and_path(fd, path.clone());
         for (key, value) in records {
-            let node = MemtableNode::new_for_test(key.to_vec(), NodeData::Data(value.to_vec()));
+            let node = MemtableNode::new_for_test(key.to_vec(), value.to_vec());
             wal.write_log(&node);
         }
         wal.flush_for_test();
