@@ -160,10 +160,10 @@ recover the memtable state.
 ### File naming
 
 ```
-wal.<timestamp_nanos>.log
+lsmlite.wal.<timestamp>.log
 ```
 
-The timestamp is nanoseconds since the Unix epoch. Multiple WAL files can exist
+The timestamp is milliseconds since the Unix epoch. Multiple WAL files can exist
 simultaneously — one per memtable that has been rotated into the immutable queue
 but not yet flushed to an SSTable. When a memtable is successfully flushed to an
 SSTable its WAL file is deleted. WAL deletion failure is treated as fatal and
@@ -180,7 +180,9 @@ The buffer capacity is pre-allocated at 100 KB.
 
 ### Record format
 
-Each record is one of two types, identified by a header byte.
+Each record is one of two types, identified by a header byte. Records are encoded
+once at creation time and stored in memory in the same binary format used on disk
+(single-copy design — see [Storage Architecture](#storage-architecture)).
 
 #### Data record (`header = 0x00`)
 
@@ -221,14 +223,14 @@ tree).
 ### File naming
 
 ```
-<timestamp_nanos>.sstable
+lsmlite.<timestamp>.sstable
 ```
 
 ### File layout
 
 ```
 +------------------+
-|  File Header (6) |
+|  File Header (9) |
 +------------------+
 |  Data Blocks     |  variable length, sorted key-value records
 +------------------+
@@ -240,17 +242,17 @@ tree).
 +------------------+
 ```
 
-### File header (6 bytes)
+### File header (9 bytes)
 
 ```
-[78, 76, 68, 66][version_u16_be]
-  "LSML"       currently 0x0000
+[6C 73 6D 6C 69 74 65][version_u16_be]
+      "lsmlite"          currently 0x0000
 ```
 
-| Field   | Size | Description               |
-|---------|------|---------------------------|
-| magic   | 4    | `0x4E 0x4C 0x44 0x42` ("LSML") |
-| version | 2    | big-endian u16, currently `0` |
+| Field   | Size | Description                          |
+|---------|------|--------------------------------------|
+| magic   | 7    | ASCII `"lsmlite"` (`0x6C736D6C697465`) |
+| version | 2    | big-endian u16, currently `0`        |
 
 ### Data block records
 
@@ -301,6 +303,18 @@ Three big-endian u64 values at a fixed offset from the end of the file:
 
 ## Storage Architecture
 
+### Single-copy record design
+
+Records are encoded into their on-disk binary format once at creation time and
+stored in memory in that same format. The in-memory `Record` struct holds the
+encoded `blob` plus two offset fields (`key: (usize, usize)` and
+`value: Option<(usize, usize)>`) that index into the blob, providing zero-copy
+access to key and value bytes without a separate decode step. Flushing a memtable
+to the WAL or an SSTable is a direct write of these blobs — no re-encoding occurs.
+
+Tombstones and data records are distinguished solely by the `value` field:
+`Some((offset, len))` = data, `None` = tombstone.
+
 ### Write path
 
 1. Client sends a request; the parser produces an `LsmliteRequest`.
@@ -349,10 +363,10 @@ compaction is triggered:
 
 On startup, `get_restart_state` scans the working directory for:
 
-- `.sstable` files — loaded into the SSTable cache, sorted newest-first by
-  timestamp in the filename.
-- `wal.<ts>.log` files — sorted oldest-first by timestamp. The caller handles
-  each category differently:
+- `lsmlite.<ts>.sstable` files — loaded into the SSTable cache, sorted
+  newest-first by timestamp in the filename.
+- `lsmlite.wal.<ts>.log` files — sorted oldest-first by timestamp. The caller
+  handles each category differently:
   - **All WAL files except the newest** represent full memtables that were
     rotated but never flushed. Each is replayed and immediately flushed to a
     new SSTable.
