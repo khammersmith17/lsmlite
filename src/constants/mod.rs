@@ -1,5 +1,5 @@
 // SSTABLE HEADER
-pub const LSMLITE_SSTABLE_HEADER: [u8; 4] = [78, 76, 68, 66]; // TODO: Fix this
+pub const LSMLITE_SSTABLE_HEADER: [u8; 7] = *b"lsmlite";
 pub const V0_HEADER: u16 = 0_u16;
 pub const HEADER_SIZE: u64 = 6_u64;
 
