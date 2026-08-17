@@ -21,6 +21,12 @@ pub(crate) fn get_be_array8(buffer: &[u8], offset: usize) -> [u8; 8] {
         .expect("Invalid size slice when deserializing bloom filter")
 }
 
+pub(crate) fn get_be_array4(buffer: &[u8], offset: usize) -> [u8; 4] {
+    buffer[offset..offset + 4]
+        .try_into()
+        .expect("Invalid size slice when deserializing bloom filter")
+}
+
 pub(crate) fn get_be_array2(buffer: Vec<u8>) -> [u8; 2] {
     buffer
         .try_into()

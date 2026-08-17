@@ -72,7 +72,7 @@ pub async fn sstable_background(
         match signal {
             CompactionSignal::LoadSSTable(path) => {
                 /*
-                 * Inser table.
+                 * Insert table.
                  * If needed, run compaction.
                  * Swap in new SSTable.
                  * */

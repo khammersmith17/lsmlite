@@ -8,7 +8,7 @@ use crate::disk;
 use crate::error::SSTableError;
 use crate::memtable::inner::Blob;
 use crate::restart::SSTableArtifact;
-use crate::ssindex::{IndexResult, SstIndex};
+use crate::ssindex::SstIndex;
 use crate::util;
 use std::collections::VecDeque;
 use std::fs::File;
@@ -129,20 +129,11 @@ impl SSTable {
     }
 
     pub fn search(&mut self, key: &[u8]) -> Result<Blob, SSTableError> {
-        match self.index.range_search_start(key) {
-            IndexResult::Range(start, end) => self.search_data_block(start, end, key),
-            IndexResult::Exact(offset) => self.read_data_block(offset, key),
-            IndexResult::None => Err(SSTableError::DiskRecordNotFound),
-        }
-    }
+        let Some(offset) = self.index.get_offset_for_key(key) else {
+            return Err(SSTableError::DiskRecordNotFound);
+        };
 
-    fn search_data_block(
-        &mut self,
-        start_offset: u64,
-        end_offset: u64,
-        key: &[u8],
-    ) -> Result<Blob, SSTableError> {
-        disk::search_data_block(&mut self.fd, start_offset, end_offset, key)
+        self.read_data_block(offset, key)
     }
 
     fn read_data_block(&mut self, offset: u64, key: &[u8]) -> Result<Blob, SSTableError> {

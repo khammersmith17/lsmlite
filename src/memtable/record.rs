@@ -55,6 +55,11 @@ impl Record {
         }
     }
 
+    pub(crate) fn take_blob(self) -> Blob {
+        let Self { blob, .. } = self;
+        blob
+    }
+
     pub(crate) fn copy_value(&self) -> Option<Blob> {
         match self.value {
             Some((offset, len)) => Some(self.blob[offset..offset + len].to_vec()),
@@ -184,3 +189,4 @@ impl Record {
         self.value = None;
     }
 }
+

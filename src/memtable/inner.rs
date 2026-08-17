@@ -222,10 +222,6 @@ impl MemtableNode {
         self.record.copy_value()
     }
 
-    pub(crate) fn copy_key(&self) -> Blob {
-        self.record.copy_key()
-    }
-
     fn size(&self) -> usize {
         self.record.size()
     }
