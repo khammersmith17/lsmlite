@@ -67,6 +67,14 @@ impl TrieNode {
         TrieNode { offset, children }
     }
 
+    fn max_char(&self) -> Option<(u8, u32)> {
+        self.children.last().copied()
+    }
+
+    fn min_char(&self) -> Option<(u8, u32)> {
+        self.children.first().copied()
+    }
+
     fn serialized_size(&self) -> usize {
         TRIE_NODE_HEADER_SIZE + (SIZE_PER_CHILD_NODE * self.children.len())
     }
@@ -232,6 +240,57 @@ impl Trie {
 
         self.arena[arena_idx].get_offset()
     }
+
+    // Find the max key in the trie. Do this by walking down the furtherest right path of the trie,
+    // and pop off any chars added after the last word.
+    pub(crate) fn max_key(&self) -> Blob {
+        let mut arena_idx = 0;
+        // Preallocate 64.
+        let mut key: Vec<u8> = Vec::with_capacity(64);
+        if self.arena.is_empty() {
+            return key;
+        }
+
+        loop {
+            // When this returns None, indicates a leaf node.
+            // A leaf node should be the end of a word.
+            let Some((c, idx)) = self.arena[arena_idx].max_char() else {
+                break;
+            };
+
+            arena_idx = idx as usize;
+            key.push(c);
+        }
+
+        key
+    }
+
+    pub(crate) fn min_key(&self) -> Blob {
+        let mut arena_idx = 0;
+        // Preallocate 64.
+        let mut key: Vec<u8> = Vec::with_capacity(64);
+        if self.arena.is_empty() {
+            return key;
+        }
+
+        loop {
+            // When this returns None, indicates a leaf node.
+            // A leaf node should be the end of a word.
+            let Some((c, idx)) = self.arena[arena_idx].min_char() else {
+                break;
+            };
+
+            arena_idx = idx as usize;
+            key.push(c);
+
+            // On the min path, the first word end node is the min key.
+            if self.arena[arena_idx].get_offset().is_some() {
+                break;
+            }
+        }
+
+        key
+    }
 }
 
 #[cfg(test)]
@@ -383,5 +442,67 @@ mod tests {
         assert_eq!(restored.get(b"z"), Some(100));
         assert_eq!(restored.get(b"a"), Some(1));
         assert_eq!(restored.get(b"m"), Some(50));
+    }
+
+    // --- min_key / max_key ---
+
+    #[test]
+    fn min_max_key_empty_trie() {
+        let trie = Trie::new(0);
+        assert_eq!(trie.min_key(), b"".to_vec());
+        assert_eq!(trie.max_key(), b"".to_vec());
+    }
+
+    #[test]
+    fn min_max_key_single_key() {
+        let trie = make_trie(&[(b"hello", 1)]);
+        assert_eq!(trie.min_key(), b"hello".to_vec());
+        assert_eq!(trie.max_key(), b"hello".to_vec());
+    }
+
+    #[test]
+    fn min_max_key_disjoint_keys() {
+        let trie = make_trie(&[(b"apple", 1), (b"banana", 2), (b"cherry", 3)]);
+        assert_eq!(trie.min_key(), b"apple".to_vec());
+        assert_eq!(trie.max_key(), b"cherry".to_vec());
+    }
+
+    #[test]
+    fn min_max_key_shared_prefix() {
+        let trie = make_trie(&[(b"foo", 1), (b"foobar", 2), (b"foobaz", 3)]);
+        // "foo" < "foobar" < "foobaz"
+        assert_eq!(trie.min_key(), b"foo".to_vec());
+        assert_eq!(trie.max_key(), b"foobaz".to_vec());
+    }
+
+    #[test]
+    fn min_key_stops_at_first_terminal_not_leaf() {
+        // "ab" is a prefix of "abc" — min_key must return "ab", not "abc"
+        let trie = make_trie(&[(b"ab", 1), (b"abc", 2)]);
+        assert_eq!(trie.min_key(), b"ab".to_vec());
+        assert_eq!(trie.max_key(), b"abc".to_vec());
+    }
+
+    #[test]
+    fn min_key_stops_at_first_terminal_deeper() {
+        // "a", "ab", "abc" — min is "a"
+        let trie = make_trie(&[(b"a", 1), (b"ab", 2), (b"abc", 3)]);
+        assert_eq!(trie.min_key(), b"a".to_vec());
+        assert_eq!(trie.max_key(), b"abc".to_vec());
+    }
+
+    #[test]
+    fn min_max_key_different_first_bytes() {
+        // max is determined at first differing byte
+        let trie = make_trie(&[(b"b", 1), (b"aa", 2)]);
+        assert_eq!(trie.min_key(), b"aa".to_vec());
+        assert_eq!(trie.max_key(), b"b".to_vec());
+    }
+
+    #[test]
+    fn max_key_takes_largest_branch() {
+        let trie = make_trie(&[(b"abc", 1), (b"abd", 2)]);
+        assert_eq!(trie.min_key(), b"abc".to_vec());
+        assert_eq!(trie.max_key(), b"abd".to_vec());
     }
 }

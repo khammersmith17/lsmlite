@@ -16,6 +16,8 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
+#[allow(unused)]
+pub(crate) mod level_cache;
 
 #[derive(Clone, Debug)]
 pub struct SSTableCache {
@@ -126,6 +128,14 @@ impl SSTable {
         let version = validate_buffer_and_get_version(&mut fd)?;
         let index = SstIndex::from_disk_sstable(&mut fd)?;
         Ok(SSTable { index, fd, version })
+    }
+
+    pub fn min_key(&self) -> &[u8] {
+        self.index.min_key()
+    }
+
+    pub fn max_key(&self) -> &[u8] {
+        self.index.max_key()
     }
 
     pub fn search(&mut self, key: &[u8]) -> Result<Blob, SSTableError> {
