@@ -62,6 +62,15 @@ async fn tables_to_iterators(tables: Vec<Arc<Mutex<SSTable>>>) -> Vec<SSTableIte
     iters
 }
 
+pub(crate) async fn compaction_worker(
+    mut receiver: Receiver<CompactionSignal>,
+    sstable_cache: SSTableCache,
+    immutable: ImmutableMemtable,
+    sstable_ack: Sender<SSTableLoadAck>,
+) {
+    todo!()
+}
+
 pub async fn sstable_background(
     mut receiver: Receiver<CompactionSignal>,
     sstable_cache: SSTableCache,

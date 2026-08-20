@@ -170,7 +170,7 @@ impl Trie {
 
     pub(crate) fn serialize(self) -> Blob {
         let total_size = self.serialized_size();
-        let mut buffer = util::make_blob_buffer(total_size);
+        let mut buffer = vec![0_u8; total_size];
         let mut offset = 0_usize;
 
         // Write node count header.

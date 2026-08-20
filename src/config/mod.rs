@@ -1,6 +1,7 @@
 use crate::constants;
 use serde::Deserialize;
 use std::collections::HashMap;
+pub(crate) mod access;
 
 #[derive(Deserialize)]
 pub struct LsmliteConfig {

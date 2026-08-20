@@ -51,6 +51,7 @@ pub fn write_sstable(table: &MemtableInner, fd: &mut File) -> std::io::Result<()
     );
     let _ = fd.write(&footer)?;
     fd.flush()?;
+    fd.sync_all()?;
     Ok(())
 }
 

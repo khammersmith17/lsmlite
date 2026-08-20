@@ -63,7 +63,11 @@ pub fn search_data_block(
     Err(SSTableError::DiskRecordNotFound)
 }
 
-pub fn read_data_block(fd: &mut File, offset: u64, key: &[u8]) -> Result<Blob, SSTableError> {
+pub(crate) fn read_data_block(
+    fd: &mut File,
+    offset: u64,
+    key: &[u8],
+) -> Result<Blob, SSTableError> {
     /*
      * Seek to exact offset on disk.
      * Read in up to 4 KB into memory.

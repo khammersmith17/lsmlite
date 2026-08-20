@@ -62,8 +62,8 @@ impl SSTableCache {
 
         for i in 0..num_tables {
             let search_result = {
-                let mut table_handle = handle[i].lock().await;
-                table_handle.search(key)
+                let table_handle = handle[i].lock().await;
+                table_handle.search(key).await
             };
 
             if search_result.is_ok() {
@@ -113,9 +113,12 @@ fn validate_buffer_and_get_version(fd: &mut File) -> Result<u16, SSTableError> {
 #[derive(Debug)]
 pub struct SSTable {
     pub index: SstIndex,
-    pub fd: File,
+    pub fd: Arc<Mutex<File>>,
+    // version for when SSTable file format changes.
+    // Not used for now.
     #[allow(unused)]
-    version: u16, // version for when SSTable file format changes.
+    version: u16,
+    pub(crate) size: u64,
 }
 
 impl SSTable {
@@ -127,7 +130,14 @@ impl SSTable {
     pub fn from_fd(mut fd: File) -> Result<SSTable, SSTableError> {
         let version = validate_buffer_and_get_version(&mut fd)?;
         let index = SstIndex::from_disk_sstable(&mut fd)?;
-        Ok(SSTable { index, fd, version })
+        let size = fd.metadata()?.len();
+        let fd = Arc::new(Mutex::new(fd));
+        Ok(SSTable {
+            index,
+            fd,
+            version,
+            size,
+        })
     }
 
     pub fn min_key(&self) -> &[u8] {
@@ -138,16 +148,13 @@ impl SSTable {
         self.index.max_key()
     }
 
-    pub fn search(&mut self, key: &[u8]) -> Result<Blob, SSTableError> {
+    pub(crate) async fn search(&self, key: &[u8]) -> Result<Blob, SSTableError> {
         let Some(offset) = self.index.get_offset_for_key(key) else {
             return Err(SSTableError::DiskRecordNotFound);
         };
 
-        self.read_data_block(offset, key)
-    }
-
-    fn read_data_block(&mut self, offset: u64, key: &[u8]) -> Result<Blob, SSTableError> {
-        disk::read_data_block(&mut self.fd, offset, key)
+        let mut fd = self.fd.lock().await;
+        disk::read_data_block(&mut fd, offset, key)
     }
 }
 
@@ -168,8 +175,8 @@ mod tests {
         (table, wal_path)
     }
 
-    #[test]
-    fn roundtrip_search() {
+    #[tokio::test]
+    async fn roundtrip_search() {
         let records: Vec<(&'static [u8], &'static [u8])> = vec![
             (b"apple", b"fruit"),
             (b"banana", b"yellow"),
@@ -189,15 +196,15 @@ mod tests {
 
         let _ = fs::remove_file(&wal_path);
 
-        let mut sstable = SSTable::from_path(sstable_path.clone()).unwrap();
+        let sstable = SSTable::from_path(sstable_path.clone()).unwrap();
 
         for (key, expected_data) in &records {
-            let result = sstable.search(key).unwrap();
+            let result = sstable.search(key).await.unwrap();
             assert_eq!(result, *expected_data, "data mismatch for key {:?}", key);
         }
 
         assert!(matches!(
-            sstable.search(b"notakey"),
+            sstable.search(b"notakey").await,
             Err(SSTableError::DiskRecordNotFound)
         ));
 

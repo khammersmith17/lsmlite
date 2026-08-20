@@ -1,19 +1,9 @@
-use crate::memtable::inner::Blob;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const LEAST_BYTE_USIZE: usize = 0x7F;
 const LEAST_BYTE_U8: u8 = 0x7F;
 const CONTINUATION: u8 = 0x80;
-
-/// Make a blob buffer of size and set the len.
-/// The buffer will be written to immediately, so the garbage data is ok.
-pub(crate) fn make_blob_buffer(size: usize) -> Blob {
-    let mut buffer = Vec::with_capacity(size);
-    // SAFETY: The garbage data will be immediately overwritten.
-    unsafe { buffer.set_len(size) };
-    buffer
-}
 
 pub(crate) fn get_be_array8(buffer: &[u8], offset: usize) -> [u8; 8] {
     buffer[offset..offset + 8]

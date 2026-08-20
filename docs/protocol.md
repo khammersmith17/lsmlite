@@ -109,11 +109,11 @@ lsmlite.<timestamp>.sstable
 +------------------+
 |  Data Blocks     |  variable length, sorted key-value records
 +------------------+
-|  Index Block     |  sparse index: one entry per 4 KB data block boundary
+|  Trie Index      |  arena-based trie mapping every key to its exact file offset
 +------------------+
 |  Bloom Filter    |  membership filter over all keys
 +------------------+
-|  Footer (24)     |  byte offsets for index block, index count, bloom filter
+|  Footer (24)     |  byte offsets for trie index, trie byte length, bloom filter
 +------------------+
 ```
 
@@ -135,43 +135,65 @@ Data blocks use the same binary encoding as WAL records (data record and
 tombstone record formats above). Records are packed contiguously in sorted key
 order. No padding is added between records.
 
-Block boundaries occur every **4 KB** of data. The index block records the key
-and file offset at each boundary.
+### Trie index
 
-### Index block
+The trie index maps every key in the SSTable directly to the exact byte offset
+of its record in the data block. This allows O(key length) point lookups with a
+single seek — no block scan required.
 
-The index block is a sparse index with one entry per 4 KB data block. Each
-entry maps the first key in a block to its byte offset within the file. Entries
-are written in sorted key order.
+The trie is a flat arena of nodes stored contiguously in memory and serialized
+in that same flat layout on disk. Children within each node are kept sorted by
+byte value to enable binary search during traversal.
+
+#### Node encoding
 
 ```
-[key_len_varint][key][offset_u64_be] ...
+[u8 child_count][u64_be raw_offset][child_count × (u8 byte, u32_be arena_idx)]
 ```
 
-| Field      | Type        | Description                       |
-|------------|-------------|-----------------------------------|
-| key_len    | varint      | byte length of key                |
-| key        | UTF-8 bytes | first key of the block            |
-| offset     | u64 big-endian | byte offset of the block start |
+The `raw_offset` field encodes two pieces of information in a single u64:
+
+- **MSB (bit 63)** — set if this node is a key terminal (word-end flag)
+- **Bits 0–62** — the byte offset of the record in the data block
+
+A node with no word-end flag set (`raw_offset = 0`) is a non-terminal interior
+node. Offset `0` is never a valid data block offset because the file header
+occupies the first 9 bytes.
+
+#### Arena serialization
+
+```
+[u32_be node_count][node_0][node_1]...[node_n]
+```
+
+| Field       | Type   | Description                          |
+|-------------|--------|--------------------------------------|
+| node_count  | u32 BE | number of nodes in the arena         |
+| nodes       | bytes  | each node serialized in arena order  |
+
+The arena is written in insertion order (inorder traversal of the memtable
+red-black tree), so nodes appear in sorted key order. The trie is loaded into
+memory in full when the SSTable is opened and held there for the lifetime of
+the file in the cache.
 
 ### Bloom filter
 
 A bloom filter over all keys in the SSTable, serialized immediately after the
-index block. Used to skip SSTables that definitely do not contain a key before
-performing any disk I/O on the data blocks.
+trie index. Used to skip SSTables that definitely do not contain a key before
+consulting the trie.
 
 ### Footer (24 bytes)
 
 Three big-endian u64 values at a fixed offset from the end of the file:
 
 ```
-[index_block_start_u64_be][index_block_count_u64_be][bloom_filter_start_u64_be]
+[trie_start_u64_be][trie_len_u64_be][bloom_filter_start_u64_be]
 ```
 
 | Field               | Size | Description                              |
 |---------------------|------|------------------------------------------|
-| index_block_start   | 8    | byte offset of first index block entry   |
-| index_block_count   | 8    | number of entries in the index block     |
+| trie_start          | 8    | byte offset of the first trie byte       |
+| trie_len            | 8    | byte length of the serialized trie       |
 | bloom_filter_start  | 8    | byte offset of the bloom filter          |
 
 ---

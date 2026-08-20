@@ -8,7 +8,7 @@ pub(crate) fn encode_data_record(key: Blob, value: Blob) -> Record {
     let log_size = key_varint_len + value_varint_len + key.len() + value.len();
     let (log_size_varint, log_size_varint_len) = util::encode_varint(log_size);
     let buffer_size = log_size_varint_len + log_size + 1_usize; // +1 for header
-    let mut record_buffer = util::make_blob_buffer(buffer_size);
+    let mut record_buffer = vec![0_u8; buffer_size];
 
     record_buffer[0] = constants::DATA_LOG_HEADER;
     let mut offset = 1_usize;
@@ -49,7 +49,7 @@ pub(crate) fn encode_tombstone_record(key: Blob) -> Record {
     let (log_size_varint, log_size_varint_len) = util::encode_varint(log_size);
     let buffer_size = log_size_varint_len + log_size + 1;
 
-    let mut record_buffer = util::make_blob_buffer(buffer_size);
+    let mut record_buffer = vec![0_u8; buffer_size];
     record_buffer[0] = constants::TOMBSTONE_LOG_HEADER;
 
     let mut offset = 1_usize;

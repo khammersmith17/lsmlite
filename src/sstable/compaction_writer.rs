@@ -77,6 +77,7 @@ impl CompactionWriter {
         );
         let _ = self.fd.write(&footer)?;
         self.fd.flush()?;
+        self.fd.sync_all()?;
         Ok(self.filename)
     }
 }
